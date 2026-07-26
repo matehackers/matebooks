@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../config.dart';
 import 'open_library_service.dart';
 
 /// Unified data lookup service that tries multiple sources.
@@ -89,14 +90,77 @@ class DataLookupService {
     return null;
   }
 
-  /// Fetch from Google Books API (no API key needed for basic queries)
+  /// Fetch data by ISBN from ALL sources in parallel, merging results.
+  /// Returns a combined map with the best available values from each source.
+  Future<Map<String, dynamic>?> fetchAllSourcesByIsbn(String isbn) async {
+    // ignore: avoid_print
+    print('[DataLookupService] fetchAllSourcesByIsbn: starting parallel lookup for ISBN: $isbn');
+
+    final results = await Future.wait([
+      _openLibrary.fetchByIsbn(isbn),
+      _fetchFromGoogleBooks(isbn),
+      _fetchFromCrossrefByIsbn(isbn),
+    ]);
+
+    final valid = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r != null) valid.add(r);
+    }
+    if (valid.isEmpty) return null;
+
+    return _mergeResults(valid);
+  }
+
+  /// Fetch data by ISSN from ALL sources in parallel, merging results.
+  Future<Map<String, dynamic>?> fetchAllSourcesByIssn(String issn) async {
+    // ignore: avoid_print
+    print('[DataLookupService] fetchAllSourcesByIssn: starting parallel lookup for ISSN: $issn');
+
+    final results = await Future.wait([
+      _fetchFromDoaj(issn),
+      _fetchFromCrossrefByIssn(issn),
+    ]);
+
+    final valid = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r != null) valid.add(r);
+    }
+    if (valid.isEmpty) return null;
+
+    return _mergeResults(valid);
+  }
+
+  static final _mergeFields = [
+    'title', 'authors', 'publisher', 'published_date',
+    'page_count', 'cover_url', 'description', 'categories',
+  ];
+
+  Map<String, dynamic> _mergeResults(List<Map<String, dynamic>> results) {
+    final merged = <String, dynamic>{};
+    for (final field in _mergeFields) {
+      for (final result in results) {
+        final value = result[field];
+        if (value == null) continue;
+        if (value == '') continue;
+        if (field == 'title' && value == 'Unknown Title') continue;
+        merged[field] = value;
+        break;
+      }
+    }
+    return merged;
+  }
+
+  /// Fetch from Google Books API.
+  /// Uses API key from --dart-define=GOOGLE_BOOKS_API_KEY if provided.
   Future<Map<String, dynamic>?> _fetchFromGoogleBooks(String isbn) async {
     try {
       // ignore: avoid_print
       print('[DataLookupService] Google Books: fetching isbn=$isbn');
-      final response = await http.get(
-        Uri.parse('https://www.googleapis.com/books/v1/volumes?q=isbn:$isbn'),
-      );
+      var url = 'https://www.googleapis.com/books/v1/volumes?q=isbn:$isbn';
+      if (TursoConfig.googleBooksApiKey.isNotEmpty) {
+        url += '&key=${TursoConfig.googleBooksApiKey}';
+      }
+      final response = await http.get(Uri.parse(url));
       // ignore: avoid_print
       print('[DataLookupService] Google Books response status: ${response.statusCode}');
       if (response.statusCode == 200) {

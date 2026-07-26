@@ -17,4 +17,12 @@ class TursoConfig {
     'TURSO_AUTH_TOKEN',
     defaultValue: '',
   );
+
+  /// Your Google Books API key.
+  /// Set via --dart-define=GOOGLE_BOOKS_API_KEY=<key>
+  /// Get one at: https://console.cloud.google.com/apis/credentials
+  static const String googleBooksApiKey = String.fromEnvironment(
+    'GOOGLE_BOOKS_API_KEY',
+    defaultValue: '',
+  );
 }

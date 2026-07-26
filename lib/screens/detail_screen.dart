@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/catalog_item.dart';
+import '../services/data_lookup_service.dart';
 import '../services/turso_service.dart';
 import 'edit_screen.dart';
 import 'library_screen.dart';
@@ -20,6 +21,8 @@ class DetailScreen extends StatefulWidget {
 class _DetailScreenState extends State<DetailScreen> {
   late CatalogItem _item;
   final TursoService _turso = TursoService();
+  final DataLookupService _dataLookup = DataLookupService();
+  bool _isRefreshing = false;
 
   @override
   void initState() {
@@ -36,6 +39,13 @@ class _DetailScreenState extends State<DetailScreen> {
       appBar: AppBar(
         title: Text(_item.type == CatalogType.magazine ? 'Magazine' : 'Book'),
         actions: [
+          IconButton(
+            icon: _isRefreshing
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.cloud_download),
+            tooltip: 'Refresh from online sources',
+            onPressed: _isRefreshing ? null : _refreshFromOnline,
+          ),
           IconButton(
             icon: const Icon(Icons.edit),
             onPressed: _editItem,
@@ -266,6 +276,109 @@ class _DetailScreenState extends State<DetailScreen> {
         Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500))),
       ],
     );
+  }
+
+  Future<void> _refreshFromOnline() async {
+    setState(() => _isRefreshing = true);
+
+    try {
+      final Map<String, dynamic>? data;
+      if (_item.type == CatalogType.magazine) {
+        data = await _dataLookup.fetchAllSourcesByIssn(_item.isbn) ??
+            await _dataLookup.fetchAllSourcesByIsbn(_item.isbn);
+      } else {
+        data = await _dataLookup.fetchAllSourcesByIsbn(_item.isbn);
+      }
+
+      if (data == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No additional data found online')),
+          );
+        }
+        return;
+      }
+
+      final updatedFields = <String>[];
+      final hasCoverPhoto = _item.coverImageBase64 != null;
+
+      if (_shouldFill(_item.title, data['title'])) {
+        _item.title = data['title'] as String;
+        updatedFields.add('Title');
+      }
+      if (_item.authors.isEmpty && data['authors'] != null) {
+        _item.authors = (data['authors'] as String)
+            .split(', ')
+            .where((a) => a.isNotEmpty)
+            .toList();
+        if (_item.authors.isNotEmpty) updatedFields.add('Authors');
+      }
+      if (_item.publisher == null && data['publisher'] != null) {
+        _item.publisher = data['publisher'] as String;
+        updatedFields.add('Publisher');
+      }
+      if (_item.publishedDate == null && data['published_date'] != null) {
+        _item.publishedDate = data['published_date'] as String;
+        updatedFields.add('Published date');
+      }
+      if (_item.pageCount == null && data['page_count'] != null) {
+        _item.pageCount = data['page_count'] as int;
+        updatedFields.add('Page count');
+      }
+      if (!hasCoverPhoto &&
+          (_item.coverUrl == null || _item.coverUrl!.isEmpty) &&
+          data['cover_url'] != null) {
+        _item.coverUrl = data['cover_url'] as String;
+        updatedFields.add('Cover image');
+      }
+      if ((_item.description == null || _item.description!.isEmpty) &&
+          data['description'] != null) {
+        _item.description = data['description'] as String;
+        updatedFields.add('Description');
+      }
+      if (_item.categories.isEmpty && data['categories'] != null) {
+        _item.categories = (data['categories'] as String)
+            .split(', ')
+            .where((c) => c.isNotEmpty)
+            .toList();
+        if (_item.categories.isNotEmpty) updatedFields.add('Categories');
+      }
+
+      if (updatedFields.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('All fields are already filled')),
+          );
+        }
+        return;
+      }
+
+      await _turso.updateItem(_item);
+
+      if (mounted) {
+        final provider = context.read<LibraryProvider>();
+        provider.loadItems();
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Updated: ${updatedFields.join(', ')}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isRefreshing = false);
+    }
+  }
+
+  bool _shouldFill(String? current, dynamic fetched) {
+    if (fetched == null) return false;
+    final currentStr = current ?? '';
+    if (currentStr.isEmpty || currentStr == 'Unknown Title') return true;
+    return false;
   }
 
   Future<void> _editItem() async {
