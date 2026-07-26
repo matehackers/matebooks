@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:provider/provider.dart';
 import '../models/catalog_item.dart';
+import '../models/search_provider.dart';
+import '../providers/settings_provider.dart';
 import '../services/data_lookup_service.dart';
 import '../services/turso_service.dart';
 import 'edit_screen.dart';
@@ -250,7 +253,8 @@ class _ScanScreenState extends State<ScanScreen> {
         return;
       }
 
-      final bookData = await _dataLookup.fetchByIsbn(cleanIsbn);
+      final settings = context.read<SettingsProvider>();
+      final bookData = await _dataLookup.fetchByIsbn(cleanIsbn, enabled: settings.forLookup(LookupType.isbn));
 
       if (bookData != null) {
         final item = CatalogItem(

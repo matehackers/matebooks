@@ -6,6 +6,7 @@ import '../widgets/catalog_card.dart';
 import '../widgets/empty_state.dart';
 import 'scan_screen.dart';
 import 'detail_screen.dart';
+import 'settings_screen.dart';
 
 class LibraryProvider extends ChangeNotifier {
   final TursoService _turso = TursoService();
@@ -131,6 +132,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
             title: const Text('MateBooks'),
             centerTitle: false,
             actions: [
+              IconButton(
+                icon: const Icon(Icons.settings),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                  );
+                },
+              ),
               if (provider.items.isNotEmpty)
                 PopupMenuButton<CatalogType?>(
                   icon: const Icon(Icons.filter_list),

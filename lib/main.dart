@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'providers/settings_provider.dart';
 import 'screens/library_screen.dart';
 
 void main() {
@@ -20,8 +21,11 @@ class MateBooksApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => LibraryProvider()..loadItems(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => SettingsProvider()..load()),
+        ChangeNotifierProvider(create: (_) => LibraryProvider()..loadItems()),
+      ],
       child: MaterialApp(
         title: 'MateBooks',
         debugShowCheckedModeBanner: false,

@@ -3,7 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import '../models/catalog_item.dart';
+import '../models/search_provider.dart';
+import '../providers/settings_provider.dart';
 import '../services/data_lookup_service.dart';
 import '../services/turso_service.dart';
 
@@ -360,12 +363,13 @@ class _EditScreenState extends State<EditScreen> {
 
     try {
       Map<String, dynamic>? data;
+      final settings = context.read<SettingsProvider>();
 
       if (_type == CatalogType.book) {
-        data = await _dataLookup.fetchByIsbn(isbn);
+        data = await _dataLookup.fetchByIsbn(isbn, enabled: settings.forLookup(LookupType.isbn));
       } else {
-        // For magazines, try ISSN lookup first, then ISBN
-        data = await _dataLookup.fetchByIssn(isbn) ?? await _dataLookup.fetchByIsbn(isbn);
+        data = await _dataLookup.fetchByIssn(isbn, enabled: settings.forLookup(LookupType.issn)) ??
+            await _dataLookup.fetchByIsbn(isbn, enabled: settings.forLookup(LookupType.isbn));
       }
 
       if (data != null && mounted) {

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/catalog_item.dart';
+import '../models/search_provider.dart';
+import '../providers/settings_provider.dart';
 import '../services/data_lookup_service.dart';
 import '../services/turso_service.dart';
 import 'edit_screen.dart';
@@ -283,11 +285,12 @@ class _DetailScreenState extends State<DetailScreen> {
 
     try {
       final Map<String, dynamic>? data;
+      final settings = context.read<SettingsProvider>();
       if (_item.type == CatalogType.magazine) {
-        data = await _dataLookup.fetchAllSourcesByIssn(_item.isbn) ??
-            await _dataLookup.fetchAllSourcesByIsbn(_item.isbn);
+        data = await _dataLookup.fetchAllSourcesByIssn(_item.isbn, enabled: settings.forLookup(LookupType.issn)) ??
+            await _dataLookup.fetchAllSourcesByIsbn(_item.isbn, enabled: settings.forLookup(LookupType.isbn));
       } else {
-        data = await _dataLookup.fetchAllSourcesByIsbn(_item.isbn);
+        data = await _dataLookup.fetchAllSourcesByIsbn(_item.isbn, enabled: settings.forLookup(LookupType.isbn));
       }
 
       if (data == null) {
