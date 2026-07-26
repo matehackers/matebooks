@@ -1,0 +1,26 @@
+# Flutter/Dart generated
+.dart_tool/
+.packages
+build/
+
+# Flutter plugin generated
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# IDE
+.idea/
+*.iml
+
+# macOS
+.DS_Store
+
+# Generated pubspec files
+.pub-cache/
+.pub/
+
+# Env files (contain secrets)
+.env
+.env.local
+
+# Test coverage
+coverage/
