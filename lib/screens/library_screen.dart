@@ -27,7 +27,13 @@ class LibraryProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await _turso.initializeDatabase();
-      final items = await _turso.getAllItems();
+      final items = await _turso.getAllItems(
+        onSyncComplete: (syncedItems) {
+          // ignore: avoid_print
+          print('[LibraryProvider] Background sync complete, refreshing UI with ${syncedItems.length} items');
+          setItems(syncedItems);
+        },
+      );
       // ignore: avoid_print
       print('[LibraryProvider] loadItems: got ${items.length} items from DB');
       setItems(items);

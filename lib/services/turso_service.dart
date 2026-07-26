@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config.dart';
 import '../models/catalog_item.dart';
+import 'local_cache_service.dart';
 
 class TursoService {
   static final TursoService _instance = TursoService._internal();
@@ -10,6 +11,7 @@ class TursoService {
 
   final String _baseUrl = TursoConfig.databaseUrl;
   final String _authToken = TursoConfig.authToken;
+  final LocalCacheService _cache = LocalCacheService();
 
   Map<String, String> get _headers => {
         'Authorization': 'Bearer $_authToken',
@@ -38,33 +40,20 @@ class TursoService {
       throw Exception('Turso error: ${response.statusCode} ${response.body}');
     }
 
-    // Check for errors in the response body
     final data = jsonDecode(response.body);
     final results = data['results'] as List?;
     if (results != null && results.isNotEmpty) {
       final firstResult = results[0] as Map?;
-      // Check for error at the results level (type == "error")
       if (firstResult?['type'] == 'error') {
         final error = firstResult?['error'] as Map?;
         throw Exception('Turso error: ${error?['message']} (code: ${error?['code']})');
       }
       final resp = firstResult?['response'] as Map?;
       final result = resp?['result'] as Map?;
-      // Check for SQL-level errors inside the result object
       if (result != null && result['error'] != null) {
         final error = result['error'];
         throw Exception('Turso SQL error: ${error['message']} (code: ${error['code']})');
       }
-    }
-  }
-
-  /// Execute SQL ignoring errors (for migrations like ADD COLUMN)
-  Future<void> _executeIgnoreError(String sql) async {
-    try {
-      await _execute(sql);
-    } catch (e) {
-      // ignore: avoid_print
-      print('[TursoService] _executeIgnoreError: ignoring error for "$sql": $e');
     }
   }
 
@@ -95,7 +84,6 @@ class TursoService {
     if (results == null || results.isEmpty) return [];
 
     final firstResult = results[0] as Map?;
-    // Check for error at the results level (type == "error")
     if (firstResult?['type'] == 'error') {
       final error = firstResult?['error'] as Map?;
       throw Exception('Turso error: ${error?['message']} (code: ${error?['code']})');
@@ -104,7 +92,6 @@ class TursoService {
     final result = resp?['result'] as Map?;
     if (result == null) return [];
 
-    // Check for SQL-level errors inside the result object
     if (result['error'] != null) {
       final error = result['error'];
       throw Exception('Turso SQL error: ${error['message']} (code: ${error['code']})');
@@ -140,9 +127,6 @@ class TursoService {
     }).toList();
   }
 
-  /// Converts a Dart value to a Turso-compatible value.
-  /// The libSQL pipeline API expects all `value` fields to be strings
-  /// for integer, float, and text types.
   Map<String, dynamic> _toTursoValue(dynamic value) {
     if (value == null) {
       return {'type': 'null'};
@@ -178,42 +162,77 @@ class TursoService {
         updated_at TEXT
       )
     ''');
-
-    // Migration: add columns that might not exist in older table schemas
-    await _executeIgnoreError('ALTER TABLE books ADD COLUMN cover_image_base64 TEXT');
-    await _executeIgnoreError('ALTER TABLE books ADD COLUMN back_image_base64 TEXT');
   }
 
-  Future<List<CatalogItem>> getAllItems() async {
+  Future<List<CatalogItem>> _fetchAllFromRemote() async {
     final rows = await _query('SELECT * FROM books ORDER BY updated_at DESC');
-    // ignore: avoid_print
-    print('[TursoService] getAllItems: returned ${rows.length} rows');
     return rows.map((row) => CatalogItem.fromJson(row)).toList();
+  }
+
+  Future<List<CatalogItem>> getAllItems({void Function(List<CatalogItem>)? onSyncComplete}) async {
+    final localItems = await _cache.getAllItems();
+
+    if (localItems.isEmpty) {
+      // ignore: avoid_print
+      print('[TursoService] Local cache empty, fetching from remote...');
+      try {
+        final remoteItems = await _fetchAllFromRemote();
+        if (remoteItems.isNotEmpty) {
+          await _cache.replaceAll(remoteItems);
+        }
+        return remoteItems;
+      } catch (e) {
+        // ignore: avoid_print
+        print('[TursoService] Remote fetch failed, returning empty: $e');
+        return [];
+      }
+    }
+
+    // ignore: avoid_print
+    print('[TursoService] Loaded ${localItems.length} items from local cache');
+
+    _backgroundSync().then((remoteItems) {
+      if (remoteItems != null && onSyncComplete != null) {
+        onSyncComplete(remoteItems);
+      }
+    });
+
+    return localItems;
+  }
+
+  Future<List<CatalogItem>?> _backgroundSync() async {
+    try {
+      final remoteItems = await _fetchAllFromRemote();
+      if (await _cache.needsSync(remoteItems)) {
+        // ignore: avoid_print
+        print('[TursoService] Background sync: updating local cache with ${remoteItems.length} items');
+        await _cache.replaceAll(remoteItems);
+        return remoteItems;
+      }
+      // ignore: avoid_print
+      print('[TursoService] Background sync: local cache up to date');
+    } catch (e) {
+      // ignore: avoid_print
+      print('[TursoService] Background sync failed: $e');
+    }
+    return null;
   }
 
   Future<CatalogItem?> getItemByIsbn(String isbn) async {
+    final local = await _cache.getItemByIsbn(isbn);
+    if (local != null) return local;
+
     final rows = await _query('SELECT * FROM books WHERE isbn = ?', [isbn]);
     if (rows.isEmpty) return null;
-    return CatalogItem.fromJson(rows.first);
-  }
-
-  Future<List<CatalogItem>> searchItems(String query) async {
-    final searchTerm = '%$query%';
-    final rows = await _query(
-      'SELECT * FROM books WHERE title LIKE ? OR authors LIKE ? OR isbn LIKE ? ORDER BY updated_at DESC',
-      [searchTerm, searchTerm, searchTerm],
-    );
-    return rows.map((row) => CatalogItem.fromJson(row)).toList();
-  }
-
-  Future<List<CatalogItem>> getItemsByType(String type) async {
-    final rows = await _query('SELECT * FROM books WHERE type = ? ORDER BY updated_at DESC', [type]);
-    return rows.map((row) => CatalogItem.fromJson(row)).toList();
+    final item = CatalogItem.fromJson(rows.first);
+    await _cache.insertItem(item);
+    return item;
   }
 
   Future<void> insertItem(CatalogItem item) async {
     // ignore: avoid_print
-    print('[TursoService] insertItem: id=${item.id}, isbn=${item.isbn}, title=${item.title}, hasCover=${item.coverImageBase64 != null}, hasBack=${item.backImageBase64 != null}');
+    print('[TursoService] insertItem: id=${item.id}, isbn=${item.isbn}, title=${item.title}');
+    await _cache.insertItem(item);
     await _execute(
       '''INSERT OR REPLACE INTO books (id, isbn, title, authors, publisher, published_date, page_count, cover_url, cover_image_base64, back_image_base64, description, categories, notes, type, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
@@ -241,6 +260,7 @@ class TursoService {
   }
 
   Future<void> updateItem(CatalogItem item) async {
+    await _cache.updateItem(item);
     await _execute(
       '''UPDATE books SET title = ?, authors = ?, publisher = ?, published_date = ?, page_count = ?, cover_url = ?, cover_image_base64 = ?, back_image_base64 = ?, description = ?, categories = ?, notes = ?, type = ?, updated_at = ?
        WHERE id = ?''',
@@ -264,6 +284,7 @@ class TursoService {
   }
 
   Future<void> deleteItem(String id) async {
+    await _cache.deleteItem(id);
     await _execute('DELETE FROM books WHERE id = ?', [id]);
   }
 }
