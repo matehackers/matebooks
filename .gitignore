@@ -18,6 +18,11 @@ build/
 .pub-cache/
 .pub/
 
+# Python utility output
+__pycache__/
+*.py[cod]
+collection.html
+
 # Env files (contain secrets)
 .env
 .env.local

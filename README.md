@@ -46,6 +46,8 @@ matebooks/
 │   └── widgets/
 │       ├── catalog_card.dart            # Grid card widget
 │       └── empty_state.dart             # Empty-state placeholder
+├── scripts/
+│   └── generate_collection.py            # Export a searchable static HTML collection
 ├── test/
 │   └── widget_test.dart                 # Smoke test
 ├── android/                             # Android platform files
@@ -165,6 +167,20 @@ CREATE TABLE books (
    ```bash
    flutter run
    ```
+
+### Generate a Static Collection
+
+The catalog can also be exported as a standalone HTML page. The script uses only
+Python's standard library, reads the same `TURSO_DB_URL` and `TURSO_AUTH_TOKEN`
+values as the app, and embeds the search interface directly in the generated file.
+
+```bash
+python3 scripts/generate_collection.py --output collection.html
+```
+
+It reads credentials from the shell or from `.env`. You can also pass them
+directly with `--db-url` and `--auth-token`. Open `collection.html` in a browser
+after generation; search runs locally by title and author.
 
 ### Available Commands
 
