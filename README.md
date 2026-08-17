@@ -237,7 +237,7 @@ LibraryScreen (home)
 
 ## License
 
-_Add license information here._
+See [LICENSE.txt](LICENSE.txt)
 
 ---
 
